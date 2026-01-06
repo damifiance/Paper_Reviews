@@ -1,0 +1,393 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{tcolorbox}
+\usepackage{enumitem}
+\usepackage{hyperref}
+
+\title{\textbf{Paper Review: You Only Look Once (YOLO)} \\ 
+\large Unified, Real-Time Object Detection}
+\author{Review of Redmon et al., 2016}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This document reviews the seminal work "You Only Look Once: Unified, Real-Time Object Detection" by Joseph Redmon et al. (2016). YOLO revolutionized object detection by reframing it as a single regression problem, processing images at 45 frames per second while achieving 63.4\% mAP on PASCAL VOC. Unlike prior methods that repurpose classifiers through complex pipelines (R-CNN, DPM), YOLO uses a unified convolutional neural network architecture that simultaneously predicts bounding boxes and class probabilities directly from full images in one evaluation. This review examines the abstract, detailed architecture, and key innovations that distinguish YOLO from older detection models.
+\end{abstract}
+
+\section{Introduction}
+
+Object detection has been a fundamental challenge in computer vision, with applications ranging from autonomous driving to assistive technologies. Prior to YOLO, state-of-the-art detection systems relied on multi-stage pipelines that were slow and difficult to optimize. YOLO introduced a paradigm shift by treating detection as a unified regression problem.
+
+\section{Paper Abstract Summary}
+
+The original YOLO paper presents three major contributions:
+
+\begin{tcolorbox}[colback=blue!5!white,colframe=blue!75!black,title=Key Contributions]
+\begin{enumerate}[leftmargin=*]
+    \item \textbf{Unified Architecture}: Reframes object detection as a single regression problem to spatially separated bounding boxes and class probabilities
+    \item \textbf{Real-Time Performance}: Base YOLO processes images at 45 FPS, Fast YOLO at 155 FPS while achieving double the mAP of other real-time detectors
+    \item \textbf{Generalization}: Learns general object representations that outperform DPM and R-CNN when applied to new domains like artwork
+\end{enumerate}
+\end{tcolorbox}
+
+\subsection{Performance Characteristics}
+
+\begin{itemize}
+    \item \textbf{Speed}: 45 FPS (YOLO) vs 0.5 FPS (Fast R-CNN)
+    \item \textbf{Accuracy}: 63.4\% mAP on PASCAL VOC 2007+2012
+    \item \textbf{Error Profile}: More localization errors but significantly fewer background false positives (13.6\% for Fast R-CNN vs 4.75\% for YOLO)
+\end{itemize}
+
+\section{YOLO Architecture}
+
+\subsection{Overall Design Philosophy}
+
+YOLO divides the input image into an $S \times S$ grid. If the center of an object falls into a grid cell, that grid cell is responsible for detecting that object. For PASCAL VOC evaluation, YOLO uses $S = 7$.
+
+\begin{figure}[H]
+\centering
+\begin{tcolorbox}[colback=gray!5,colframe=gray!75,width=0.9\textwidth,center,title=YOLO Detection System Flow]
+\begin{center}
+\textbf{Input Image (448×448)} $\rightarrow$ \textbf{CNN (24 conv + 2 FC)} $\rightarrow$ \textbf{7×7×30 Tensor} $\rightarrow$ \textbf{NMS} $\rightarrow$ \textbf{Detections}
+\end{center}
+\end{tcolorbox}
+\caption{YOLO processes an image through a single neural network to predict all detections simultaneously}
+\end{figure}
+
+\subsection{Network Architecture Details}
+
+The YOLO network consists of:
+
+\begin{itemize}
+    \item \textbf{24 Convolutional Layers}: Extract features from the image
+    \item \textbf{2 Fully Connected Layers}: Predict output probabilities and coordinates
+    \item \textbf{Inspired by GoogLeNet}: Uses $1 \times 1$ reduction layers followed by $3 \times 3$ convolutional layers
+\end{itemize}
+
+\begin{table}[H]
+\centering
+\caption{YOLO Network Layer Specifications}
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Layer Type} & \textbf{Filter/Stride} & \textbf{Input Size} & \textbf{Output Size} \\ \midrule
+Convolutional & $7 \times 7 \times 64$, s=2 & $448 \times 448 \times 3$ & $224 \times 224 \times 64$ \\
+Max Pooling & $2 \times 2$, s=2 & $224 \times 224 \times 64$ & $112 \times 112 \times 64$ \\
+Convolutional & $3 \times 3 \times 192$ & $112 \times 112 \times 64$ & $112 \times 112 \times 192$ \\
+Max Pooling & $2 \times 2$, s=2 & $112 \times 112 \times 192$ & $56 \times 56 \times 192$ \\
+Conv Layers (×8) & $1 \times 1$ and $3 \times 3$ & $56 \times 56 \times 256$ & $28 \times 28 \times 512$ \\
+Conv Layers (×4) & $1 \times 1$ and $3 \times 3$ & $28 \times 28 \times 512$ & $14 \times 14 \times 1024$ \\
+Conv Layers (×2) & $3 \times 3 \times 1024$ & $14 \times 14 \times 1024$ & $7 \times 7 \times 1024$ \\
+Fully Connected & - & $7 \times 7 \times 1024$ & 4096 \\
+Fully Connected & - & 4096 & $7 \times 7 \times 30$ \\ \bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Output Tensor Structure}
+
+Each grid cell predicts:
+\begin{itemize}
+    \item \textbf{$B = 2$ bounding boxes}, each with 5 predictions: $(x, y, w, h, \text{confidence})$
+    \item \textbf{$C = 20$ conditional class probabilities} (for PASCAL VOC)
+\end{itemize}
+
+\textbf{Final prediction tensor}: $7 \times 7 \times 30$
+
+\begin{equation}
+\text{Tensor size} = S \times S \times (B \times 5 + C) = 7 \times 7 \times (2 \times 5 + 20) = 7 \times 7 \times 30
+\end{equation}
+
+\subsection{Prediction Components}
+
+\subsubsection{Bounding Box Predictions}
+
+Each bounding box consists of 5 predictions:
+\begin{itemize}
+    \item $(x, y)$: Center coordinates relative to grid cell bounds
+    \item $(w, h)$: Width and height relative to whole image
+    \item Confidence: $\Pr(\text{Object}) \times \text{IOU}_{\text{pred}}^{\text{truth}}$
+\end{itemize}
+
+\subsubsection{Class Probability}
+
+Each grid cell predicts $C$ conditional class probabilities:
+\begin{equation}
+\Pr(\text{Class}_i | \text{Object})
+\end{equation}
+
+At test time, these are combined:
+\begin{equation}
+\boxed{\Pr(\text{Class}_i | \text{Object}) \times \Pr(\text{Object}) \times \text{IOU}_{\text{pred}}^{\text{truth}} = \Pr(\text{Class}_i) \times \text{IOU}_{\text{pred}}^{\text{truth}}}
+\end{equation}
+
+\section{Key Differentiating Features from Older Models}
+
+\subsection{1. Unified Detection vs. Multi-Stage Pipelines}
+
+\begin{tcolorbox}[colback=green!5,colframe=green!75,title=YOLO's Single-Stage Approach]
+\textbf{Older Methods (R-CNN, DPM):}
+\begin{itemize}
+    \item Region proposal generation (Selective Search)
+    \item Feature extraction for each proposal
+    \item SVM classification
+    \item Bounding box regression
+    \item Non-max suppression
+\end{itemize}
+
+\textbf{YOLO:}
+\begin{itemize}
+    \item Single convolutional network pass
+    \item Simultaneous prediction of all boxes and classes
+    \item Non-max suppression
+\end{itemize}
+\end{tcolorbox}
+
+\textbf{Impact}: This enables end-to-end optimization and eliminates the need to train separate components.
+
+\subsection{2. Global Context Reasoning}
+
+\begin{table}[H]
+\centering
+\caption{Comparison of Detection Approaches}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Aspect} & \textbf{Older Methods} & \textbf{YOLO} \\ \midrule
+Image View & Local patches/regions & Entire image \\
+Context & Limited to proposal region & Global scene context \\
+Background Errors & 13.6\% (Fast R-CNN) & 4.75\% \\
+Speed & 0.5-6 FPS & 45-155 FPS \\
+Proposals & ~2000 (Selective Search) & 98 (grid-based) \\ \bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Key Insight}: By seeing the entire image during training and test time, YOLO implicitly encodes contextual information about classes and their appearance, reducing false positives on background regions.
+
+\subsection{3. Direct Detection as Regression}
+
+\begin{tcolorbox}[colback=orange!5,colframe=orange!75,title=Detection as Regression Problem]
+\textbf{Traditional Approach:}
+\begin{itemize}
+    \item Repurpose image classifier for detection
+    \item Sliding window or region proposals
+    \item Multiple evaluations per image
+\end{itemize}
+
+\textbf{YOLO Approach:}
+\begin{itemize}
+    \item Direct regression from image pixels to bounding box coordinates
+    \item Single network evaluation
+    \item Optimized directly for detection performance
+\end{itemize}
+\end{tcolorbox}
+
+\subsection{4. Loss Function: Multi-Part Optimization}
+
+YOLO uses a sum-squared error loss with weighted components:
+
+\begin{equation}
+\begin{aligned}
+\mathcal{L} = &\lambda_{\text{coord}} \sum_{i=0}^{S^2} \sum_{j=0}^{B} \mathbb{1}_{ij}^{\text{obj}} \left[ (x_i - \hat{x}_i)^2 + (y_i - \hat{y}_i)^2 \right] \\
+&+ \lambda_{\text{coord}} \sum_{i=0}^{S^2} \sum_{j=0}^{B} \mathbb{1}_{ij}^{\text{obj}} \left[ \left(\sqrt{w_i} - \sqrt{\hat{w}_i}\right)^2 + \left(\sqrt{h_i} - \sqrt{\hat{h}_i}\right)^2 \right] \\
+&+ \sum_{i=0}^{S^2} \sum_{j=0}^{B} \mathbb{1}_{ij}^{\text{obj}} (C_i - \hat{C}_i)^2 \\
+&+ \lambda_{\text{noobj}} \sum_{i=0}^{S^2} \sum_{j=0}^{B} \mathbb{1}_{ij}^{\text{noobj}} (C_i - \hat{C}_i)^2 \\
+&+ \sum_{i=0}^{S^2} \mathbb{1}_{i}^{\text{obj}} \sum_{c \in \text{classes}} (p_i(c) - \hat{p}_i(c))^2
+\end{aligned}
+\end{equation}
+
+Where:
+\begin{itemize}
+    \item $\lambda_{\text{coord}} = 5$: Increases loss from bounding box coordinates
+    \item $\lambda_{\text{noobj}} = 0.5$: Decreases loss from confidence predictions for boxes without objects
+    \item $\mathbb{1}_{ij}^{\text{obj}}$: Indicator if object appears in cell $i$ and box $j$ is responsible
+    \item Square root for $(w, h)$: Makes small deviations in large boxes matter less
+\end{itemize}
+
+\subsection{5. Speed-Accuracy Trade-off}
+
+\begin{figure}[H]
+\centering
+\begin{tcolorbox}[colback=yellow!10,colframe=yellow!70,width=0.85\textwidth]
+\textbf{Performance Comparison on PASCAL VOC 2007:}
+\begin{itemize}
+    \item \textbf{Fast YOLO}: 155 FPS, 52.7\% mAP
+    \item \textbf{YOLO}: 45 FPS, 63.4\% mAP
+    \item \textbf{Fast R-CNN}: 0.5 FPS, 70.0\% mAP
+    \item \textbf{Faster R-CNN (VGG-16)}: 7 FPS, 73.2\% mAP
+    \item \textbf{DPM}: 30 FPS, 26.1\% mAP
+\end{itemize}
+\end{tcolorbox}
+\caption{YOLO achieves real-time performance with competitive accuracy}
+\end{figure}
+
+\textbf{Analysis}: YOLO is the only method operating at true real-time speeds ($>$30 FPS) while maintaining high accuracy. It trades some localization precision for speed and reduced background errors.
+
+\subsection{6. Activation Function}
+
+YOLO uses a \textbf{leaky rectified linear activation} for all layers except the final layer:
+
+\begin{equation}
+\phi(x) = \begin{cases}
+x, & \text{if } x > 0 \\
+0.1x, & \text{otherwise}
+\end{cases}
+\end{equation}
+
+The final layer uses a \textbf{linear activation function} to predict bounding box coordinates and probabilities.
+
+\subsection{7. Training Strategy}
+
+\begin{enumerate}
+    \item \textbf{Pretraining}: First 20 convolutional layers trained on ImageNet at $224 \times 224$ resolution
+    \item \textbf{Detection Fine-tuning}: Add 4 convolutional + 2 fully connected layers, increase resolution to $448 \times 448$
+    \item \textbf{Data Augmentation}: Random scaling and translations up to 20\%, exposure and saturation adjustments
+    \item \textbf{Regularization}: Dropout (rate = 0.5) after first connected layer
+    \item \textbf{Learning Rate Schedule}:
+    \begin{itemize}
+        \item Epochs 1-75: $10^{-2}$
+        \item Epochs 76-105: $10^{-3}$
+        \item Epochs 106-135: $10^{-4}$
+    \end{itemize}
+\end{enumerate}
+
+\section{Comparison with Previous Detection Systems}
+
+\subsection{vs. Deformable Parts Models (DPM)}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}p{4cm}p{5cm}p{5cm}@{}}
+\toprule
+\textbf{Feature} & \textbf{DPM} & \textbf{YOLO} \\ \midrule
+Approach & Sliding window & Grid-based regression \\
+Pipeline & Disjoint (feature extraction, classification, localization separate) & Unified single network \\
+Features & Static (HOG) & Learned end-to-end \\
+Speed & 15-30 FPS & 45-155 FPS \\
+Accuracy (VOC 2007) & 30.4\% mAP & 63.4\% mAP \\ \bottomrule
+\end{tabular}
+\caption{YOLO vs. Deformable Parts Models}
+\end{table}
+
+\subsection{vs. R-CNN Family}
+
+\textbf{R-CNN Pipeline:}
+\begin{enumerate}
+    \item Selective Search: Generate ~2000 region proposals ($\sim$2 seconds)
+    \item CNN: Extract features for each proposal
+    \item SVM: Classify each region
+    \item Regression: Adjust bounding boxes
+    \item NMS: Eliminate duplicates
+\end{enumerate}
+
+\textbf{Time}: $>$40 seconds per image
+
+\vspace{0.5cm}
+
+\textbf{Fast R-CNN Improvements:}
+\begin{itemize}
+    \item Shares computation across proposals
+    \item Still relies on Selective Search
+    \item 0.5 FPS ($\sim$2 seconds per image)
+\end{itemize}
+
+\vspace{0.5cm}
+
+\textbf{Faster R-CNN:}
+\begin{itemize}
+    \item Replaces Selective Search with Region Proposal Network
+    \item 7-18 FPS depending on base network
+    \item Still slower than YOLO
+\end{itemize}
+
+\subsection{Error Analysis: YOLO vs. Fast R-CNN}
+
+\begin{table}[H]
+\centering
+\caption{Error Type Distribution (Top N Detections)}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{Error Type} & \textbf{Fast R-CNN} & \textbf{YOLO} \\ \midrule
+Correct & 71.6\% & 65.5\% \\
+Localization Error & 8.6\% & 19.0\% \\
+Similar Class & 4.3\% & 6.75\% \\
+Other Class & 1.9\% & 4.0\% \\
+Background & \textcolor{red}{\textbf{13.6\%}} & \textcolor{green}{\textbf{4.75\%}} \\ \bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Key Finding}: YOLO makes almost 3× fewer background errors than Fast R-CNN because it sees the full image and reasons about global context.
+
+\subsection{vs. OverFeat}
+
+\begin{itemize}
+    \item \textbf{OverFeat}: Sliding window detection using CNN, optimizes for localization not detection
+    \item \textbf{YOLO}: Direct detection optimization, reasons globally about context
+    \item \textbf{Difference}: OverFeat is a disjoint system requiring post-processing, while YOLO is unified
+\end{itemize}
+
+\section{Limitations and Trade-offs}
+
+\begin{tcolorbox}[colback=red!5,colframe=red!75,title=YOLO Limitations]
+\begin{enumerate}
+    \item \textbf{Spatial Constraints}: Each grid cell predicts only 2 boxes and one class, limiting detection of nearby objects (e.g., flocks of birds)
+    \item \textbf{Generalization}: Struggles with objects in unusual aspect ratios or configurations not seen in training
+    \item \textbf{Coarse Features}: Multiple downsampling layers result in relatively coarse features for small object detection
+    \item \textbf{Localization Errors}: Main source of error is incorrect localization, especially for small objects
+\end{enumerate}
+\end{tcolorbox}
+
+\section{Generalization Capability}
+
+A unique strength of YOLO is its ability to generalize to new domains:
+
+\begin{table}[H]
+\centering
+\caption{Generalization Performance on Artwork Datasets}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{Method} & \textbf{VOC 2007 AP} & \textbf{Picasso AP} & \textbf{People-Art AP} \\ \midrule
+YOLO & 59.2 & 53.3 & 45 \\
+R-CNN & 54.2 & 10.4 & 26 \\
+DPM & 43.2 & 37.8 & 32 \\ \bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Insight}: YOLO's global reasoning about object size, shape, and relationships enables better transfer to artwork, where pixel-level appearance differs dramatically from natural images.
+
+\section{Architectural Innovations Summary}
+
+\begin{tcolorbox}[colback=purple!5,colframe=purple!75,title=What Makes YOLO Different]
+\begin{enumerate}[leftmargin=*]
+    \item \textbf{Single Regression Problem}: Direct prediction from pixels to detections
+    \item \textbf{Global Context}: Entire image visible during prediction
+    \item \textbf{Unified Architecture}: End-to-end trainable single network
+    \item \textbf{Grid-Based Prediction}: $S \times S$ grid with $B$ boxes per cell
+    \item \textbf{Real-Time Speed}: 45-155 FPS vs. $<$7 FPS for previous methods
+    \item \textbf{Joint Optimization}: Simultaneous prediction of all boxes and classes
+    \item \textbf{Fewer Background Errors}: 3× reduction compared to Fast R-CNN
+    \item \textbf{Strong Generalization}: Transfer learning to new domains
+\end{enumerate}
+\end{tcolorbox}
+
+\section{Conclusion}
+
+YOLO represents a fundamental paradigm shift in object detection by treating it as a unified regression problem rather than a multi-stage classification pipeline. Its key innovations—single-pass detection, global context reasoning, and direct bounding box regression—enable real-time performance while maintaining competitive accuracy. While YOLO trades some localization precision for speed, it significantly reduces background false positives and generalizes better to new domains.
+
+The architecture's simplicity and effectiveness have made YOLO a foundational work in computer vision, spawning numerous improvements (YOLOv2-v8) that further refine the balance between speed and accuracy. YOLO demonstrated that object detection could be fast enough for real-time applications like autonomous driving while remaining accurate enough for practical deployment.
+
+\vspace{1cm}
+
+\begin{center}
+\textit{``You only look once at an image to predict what objects are present and where they are.''} \\
+\textit{— Redmon et al., 2016}
+\end{center}
+
+\end{document}
